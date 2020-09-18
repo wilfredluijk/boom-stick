@@ -1,15 +1,8 @@
 "use strict";
 
-const xOffset = 30;
-const yOffset = 800;
-const cannonDivId = "cannon";
-const bulletStartY = 22;
-const bulletSpeed = 15;
-
 const bullets = [];
 const explosions = [];
 const smokeClouds = [];
-
 const enemyHelicopters = [];
 
 let gameTick = 0;
@@ -17,56 +10,206 @@ let pause = false;
 
 main();
 
-
 function main() {
-
-    window.onload = function () {
-        document.querySelector("#pause").addEventListener("click", function () {
-            pause = !pause;
-        });
+    window.onload = () => {
+        document.querySelector("#pause")
+            .addEventListener("click", () => pause = !pause);
     };
     document.onmousemove = handleMouseMove;
     document.onclick = handleMouseClick
 
-    var tid = setInterval(timerLoop, 25);
+    setInterval(gameLoop, 25);
+}
+
+function gameLoop() {
+    if (!pause) {
+        runCheckLoop();
+    }
+}
+
+function runCheckLoop() {
+
+    if (gameTick % 200 === 0) {
+        const heliDiv = createEnemyHeliDiv();
+        appendToGame(heliDiv)
+        enemyHelicopters.push({health: 100, div: heliDiv, hasFire: false});
+    }
+
+    handleBullets();
+    handleSmokeClouds();
+    handleExplosions();
+    handleHelicopters();
+
+    const gameBox = document.querySelector('.game-box');
+
+    function removeSelf(div) {
+        div.parentNode.removeChild(div);
+    }
+
+    function addExplosion(left, bottom) {
+        const div = createDivWithClassName('explosion')
+        div.style.left = (left - 15) + 'px'
+        div.style.bottom = (bottom - 15) + 'px'
+        appendToGame(div);
+        explosions.push({tick: 0, div: div});
+    }
+
+    function calculateHelicopterIsHit(explosion) {
+        const explosionRect = explosion.div.getBoundingClientRect();
+        enemyHelicopters.forEach(heli => {
+            const heliRect = heli.div.getBoundingClientRect();
+            const isHit = !(explosionRect.right < heliRect.left ||
+                explosionRect.left > heliRect.right ||
+                explosionRect.bottom < heliRect.top ||
+                explosionRect.top > heliRect.bottom);
+            if (isHit && heli.health >= 10) {
+                heli.health -= 10;
+                heli.div.firstElementChild.value -= 10;
+            }
+        })
+    }
+
+    function handleBullets() {
+        if (bullets.length > 0) {
+            bullets.forEach((bullet, index) => {
+                const course = bullet.course;
+                const style = bullet.div.style;
+                if (course.stepCount > 0) {
+                    course.stepCount -= 1;
+                    style.bottom = getIncrementedStyleValue(style.bottom, course.yStepDist);
+                    style.left = getIncrementedStyleValue(style.left, course.xStepDist);
+                } else {
+                    removeSelf(bullet.div);
+                    bullets.splice(index, 1);
+                    addExplosion(parseStylePixelValue(style.left), parseStylePixelValue(style.bottom));
+                }
+            })
+        }
+    }
+
+
+    function handleExplosions() {
+        if (explosions.length > 0) {
+            explosions.forEach((explosion, index) => {
+                if (explosion.tick === 1) {
+                    calculateHelicopterIsHit(explosion);
+                }
+                if (explosion.tick >= 5) {
+                    const div = createDivWithClassName('smoke-cloud');
+                    const explosionStyle = explosion.div.style;
+                    div.style.bottom = explosionStyle.bottom;
+                    div.style.left = explosionStyle.left;
+                    appendToGame(div)
+                    smokeClouds.push({tick: 0, div: div})
+                    explosions.splice(index, 1);
+                    removeSelf(explosion.div)
+                } else {
+                    explosion.tick += 1;
+                }
+            })
+        }
+    }
+
+
+    function handleSmokeClouds() {
+        if (smokeClouds.length > 0) {
+            smokeClouds.forEach((smoke, index) => {
+                if (smoke.tick >= 60) {
+                    smokeClouds.splice(index, 1);
+                    smoke.div.parentNode.removeChild(smoke.div);
+                } else {
+                    const explosionStyle = smoke.div.style;
+                    if (smoke.tick >= 40) {
+                        if (smoke.tick % 2 === 0) {
+                            let number = Number(explosionStyle.opacity);
+                            number -= 0.1;
+                            explosionStyle.opacity = number.toString();
+                        }
+                        if (smoke.tick % 5 === 0 || smoke.tick === 0) {
+                            const styleValue = parseStylePixelValue(explosionStyle.left);
+                            explosionStyle.left = (styleValue - 1) + 'px';
+                        }
+                        smoke.tick += 1;
+                    } else {
+                        if (smoke.tick % 5 === 0 || smoke.tick === 0) {
+                            const styleValue = parseStylePixelValue(explosionStyle.left);
+                            explosionStyle.left = (styleValue - 1) + 'px';
+                        }
+                        smoke.tick += 1;
+                    }
+                }
+            })
+        }
+    }
+
+
+    function handleHelicopters() {
+        if (enemyHelicopters.length > 0) {
+            enemyHelicopters.forEach((heli, index) => {
+                const heliStyle = heli.div.style;
+                let speed = getIncrementedStyleValue(heliStyle.right, 1);
+                speed = speed == null ? '100px' : speed;
+                heliStyle.right = speed;
+
+                if (heli.health === 0) {
+                    if (!heli.hasFire) {
+                        const fireDiv = createDivWithClassName('fire')
+                        heli.div.appendChild(fireDiv);
+                        heli.hasFire = true;
+                    }
+                    let heliHeight = getIncrementedStyleValue(heliStyle.top, 5);
+                    heliHeight = heliHeight == null ? '300px' : heliHeight;
+                    heliStyle.top = heliHeight;
+                    heliStyle.transform = 'rotate(10deg)'
+                }
+                if (parseStylePixelValue(heliStyle.top) > 800) {
+                    removeSelf(heli.div)
+                    enemyHelicopters.splice(index, 1);
+                }
+            })
+        }
+    }
+
+    gameTick++;
 }
 
 function handleMouseClick($event) {
     const bulletCourse = createBulletCourse($event.pageX, $event.pageY);
-    const bulletDiv = createBulletDiv();
+    const bulletDiv = createBulletDivAndAddToGame();
     bullets.push({course: bulletCourse, div: bulletDiv})
 }
 
-function createBulletDiv() {
-    const bulletDiv = document.createElement('div');
+function appendToGame(element) {
     const gameBox = document.querySelector('.game-box');
-    bulletDiv.className = 'bullet';
+    gameBox.appendChild(element);
+}
+
+function createBulletDivAndAddToGame() {
+    const bulletDiv = createDivWithClassName('bullet')
     bulletDiv.style.bottom = '22px';
     bulletDiv.style.left = '0px';
-    gameBox.appendChild(bulletDiv);
+    appendToGame(bulletDiv);
     return bulletDiv;
 }
 
-function createExplosionDiv() {
-    const explosionDiv = document.createElement('div');
-    explosionDiv.className = 'explosion'
-    return explosionDiv;
-}
-
-function createSmokeCloudDiv() {
-    const explosionDiv = document.createElement('div');
-    explosionDiv.className = 'smoke-cloud'
-    return explosionDiv;
+function createDivWithClassName(className) {
+    const div = document.createElement('div');
+    div.className = className
+    return div;
 }
 
 function createEnemyHeliDiv() {
-    const heliDiv = document.createElement('div');
-    heliDiv.className = 'helicopter'
+    const heliDiv = createDivWithClassName('helicopter')
+    const progressElement = createHeliHealthBar();
+    heliDiv.appendChild(progressElement)
+    return heliDiv;
+}
+
+function createHeliHealthBar() {
     const progressElement = document.createElement('progress');
     progressElement.max = 100;
     progressElement.value = 100;
-    heliDiv.appendChild(progressElement)
-    return heliDiv;
+    return progressElement;
 }
 
 function createBulletCourse(xCoordsTarget, yCoordsTarget) {
@@ -86,14 +229,14 @@ function createBulletCourse(xCoordsTarget, yCoordsTarget) {
 }
 
 function handleMouseMove(event) {
-    const xValue = event.pageX - xOffset;
-    const yValue = yOffset - event.pageY;
+    const xValue = event.pageX - 30;
+    const yValue = 800 - event.pageY;
     const angle = getAngle(xValue, yValue);
     transformCannonAngle(angle);
 }
 
 function transformCannonAngle(angle) {
-    document.getElementById(cannonDivId).style.transform = getRotationString(angle);
+    document.getElementById('cannon').style.transform = getRotationString(angle);
 }
 
 function getRotationString(angle) {
@@ -108,134 +251,6 @@ function getZDistance(xValue, yValue) {
 function getAngle(xValue, yValue) {
     const length = getZDistance(xValue, yValue);
     return Math.sin(yValue / length) * (180 / Math.PI);
-}
-
-function runcheckLoop() {
-    const gameBox = document.querySelector('.game-box');
-    if (bullets.length > 0) {
-        bullets.forEach((bullet, index) => {
-            if (bullet.course.stepCount > 0) {
-                bullet.course.stepCount -= 1;
-                const xIncrement = bullet.course.xStepDist;
-                const yIncrement = bullet.course.yStepDist;
-
-                bullet.div.style.bottom = getIncrementedStyleValue(bullet.div.style.bottom, yIncrement);
-                bullet.div.style.left = getIncrementedStyleValue(bullet.div.style.left, xIncrement);
-
-
-            } else {
-                bullet.div.parentNode.removeChild(bullet.div);
-                bullets.splice(index, 1);
-                const bottom = parseStylePixelValue(bullet.div.style.bottom);
-                const left = parseStylePixelValue(bullet.div.style.left);
-                const div = createExplosionDiv();
-                div.style.left = (left - 15) + 'px'
-                div.style.bottom = (bottom - 15) + 'px'
-                gameBox.appendChild(div);
-                explosions.push({tick: 0, div: div});
-            }
-        })
-    }
-
-    if (explosions.length > 0) {
-        explosions.forEach((explosion, index) => {
-            if (explosion.tick === 1) {
-                const explosionRect = explosion.div.getBoundingClientRect();
-                enemyHelicopters.forEach(heli => {
-
-                    const heliRect = heli.div.getBoundingClientRect();
-                    const isHit = !(explosionRect.right < heliRect.left ||
-                        explosionRect.left > heliRect.right ||
-                        explosionRect.bottom < heliRect.top ||
-                        explosionRect.top > heliRect.bottom);
-
-                    if (isHit && heli.health >= 10) {
-                        heli.health -= 10;
-                        heli.div.firstElementChild.value -= 10;
-                    }
-
-                })
-            }
-            if (explosion.tick >= 5) {
-                const div = createSmokeCloudDiv();
-                div.style.bottom = explosion.div.style.bottom;
-                div.style.left = explosion.div.style.left;
-                gameBox.appendChild(div);
-                smokeClouds.push({tick: 0, div: div})
-                explosions.splice(index, 1);
-                explosion.div.parentNode.removeChild(explosion.div);
-            } else {
-                explosion.tick += 1;
-            }
-        })
-    }
-
-    if (smokeClouds.length > 0) {
-        smokeClouds.forEach((smoke, index) => {
-            if (smoke.tick >= 60) {
-                smokeClouds.splice(index, 1);
-                smoke.div.parentNode.removeChild(smoke.div);
-            } else if (smoke.tick >= 40) {
-                if (smoke.tick % 2 === 0) {
-                    let number = Number(smoke.div.style.opacity);
-                    number -= 0.1;
-                    smoke.div.style.opacity = number.toString();
-                }
-                if (smoke.tick % 5 === 0 || smoke.tick === 0) {
-                    const styleValue = parseStylePixelValue(smoke.div.style.left);
-                    smoke.div.style.left = (styleValue - 1) + 'px';
-                }
-                smoke.tick += 1;
-            } else {
-                if (smoke.tick % 5 === 0 || smoke.tick === 0) {
-                    const styleValue = parseStylePixelValue(smoke.div.style.left);
-                    smoke.div.style.left = (styleValue - 1) + 'px';
-                }
-                smoke.tick += 1;
-            }
-        })
-    }
-
-    if (enemyHelicopters.length > 0) {
-        enemyHelicopters.forEach((heli, index) => {
-            let speed = getIncrementedStyleValue(heli.div.style.right, 1);
-            speed = speed == null ? '100px' : speed;
-            heli.div.style.right = speed;
-
-            if (heli.health === 0) {
-                if (!heli.hasFire) {
-                    const fireDiv = document.createElement('div');
-                    fireDiv.className = 'fire';
-                    heli.div.appendChild(fireDiv);
-                    heli.hasFire = true;
-                }
-                let incrementedStyleValue = getIncrementedStyleValue(heli.div.style.top, 5);
-                incrementedStyleValue = incrementedStyleValue == null ? '300px' : incrementedStyleValue;
-                heli.div.style.top = incrementedStyleValue;
-                heli.div.style.transform = 'rotate(10deg)'
-            }
-            if (parseStylePixelValue(heli.div.style.top) > 800) {
-                gameBox.removeChild(heli.div);
-                enemyHelicopters.splice(index, 1);
-            }
-        })
-
-    }
-
-    if (gameTick % 200 === 0) {
-        const heliDiv = createEnemyHeliDiv();
-        gameBox.appendChild(heliDiv);
-        enemyHelicopters.push({health: 100, div: heliDiv, hasFire: false});
-    }
-
-    gameTick++;
-}
-
-function timerLoop() {
-    if (!pause) {
-        runcheckLoop();
-    }
-
 }
 
 function parseStylePixelValue(value) {
