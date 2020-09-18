@@ -31,11 +31,6 @@ function main() {
     var tid = setInterval(timerLoop, 25);
 }
 
-// Get position of div element
-// const element = document.querySelector('.bullet');
-//     console.log(element.getBoundingClientRect());
-
-
 function handleMouseClick($event) {
     const bulletCourse = createBulletCourse($event.pageX, $event.pageY);
     const bulletDiv = createBulletDiv();
@@ -155,7 +150,6 @@ function runcheckLoop() {
                         explosionRect.top > heliRect.bottom);
 
                     if (isHit && heli.health >= 10) {
-                        console.log('Heli is hit!');
                         heli.health -= 10;
                         heli.div.firstElementChild.value -= 10;
                     }
@@ -217,7 +211,6 @@ function runcheckLoop() {
                 }
                 let incrementedStyleValue = getIncrementedStyleValue(heli.div.style.top, 5);
                 incrementedStyleValue = incrementedStyleValue == null ? '300px' : incrementedStyleValue;
-                console.log(heli, incrementedStyleValue)
                 heli.div.style.top = incrementedStyleValue;
                 heli.div.style.transform = 'rotate(10deg)'
             }
@@ -236,7 +229,6 @@ function runcheckLoop() {
     }
 
     gameTick++;
-    // console.log(gameTick)
 }
 
 function timerLoop() {

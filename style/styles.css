@@ -6,7 +6,6 @@ body {
     position: relative;
     height: 800px;
     width: 1500px;
-     background-color: lightblue;
 }
 
 .bullet {
@@ -65,4 +64,5 @@ div.fire {
     background: green url("https://2015fallhw.github.io/arcidau/Images/Cannon-Pitt-04.jpg");
     /* transform: rotate(330deg); */
     background-size: 100% 100%;
+    z-index: 10;
 }
