@@ -1,0 +1,68 @@
+body {
+    height: 800px;
+}
+
+.game-box {
+    position: relative;
+    height: 800px;
+    width: 1500px;
+     background-color: lightblue;
+}
+
+.bullet {
+    width: 20px;
+    height: 15px;
+    background-color: black;
+    position: absolute;
+    border-radius: 25px;
+    z-index: 1;
+}
+
+.explosion {
+    width: 50px;
+    height: 50px;
+    background-image: url(../asset/explosion.png);
+    background-size: cover;
+    position: absolute;
+    z-index: 2;
+}
+
+.smoke-cloud {
+    width: 50px;
+    height: 50px;
+    background-image: url(../asset/smoke.png);
+    background-size: cover;
+    position: absolute;
+    z-index: 3;
+}
+
+.helicopter {
+    width: 256px;
+    height: 126px;
+    background-image: url(../asset/helicopter.png);
+    color: darkred;
+    background-size: cover;
+    position: absolute;
+    z-index: 1;
+    top: 300px;
+    right: 100px;
+}
+
+div.fire {
+    width: 70px;
+    height: 70px;
+    background-image: url(../asset/fire.gif);
+    background-size: cover;
+    z-index: 3;
+}
+
+#cannon {
+    left: -200px;
+    position: absolute;
+    bottom: 0;
+    width: 400px;
+    height: 60px;
+    background: green url("https://2015fallhw.github.io/arcidau/Images/Cannon-Pitt-04.jpg");
+    /* transform: rotate(330deg); */
+    background-size: 100% 100%;
+}
