@@ -15,6 +15,9 @@ function main() {
         document.querySelector("#pause")
             .addEventListener("click", () => pause = !pause);
     };
+    window.onerror = function (message, source, lineno, colno, error) {
+        console.log('error!', message)
+    };
     document.onmousemove = handleMouseMove;
     document.onclick = handleMouseClick
 
@@ -74,7 +77,7 @@ function runCheckLoop() {
             bullets.forEach((bullet, index) => {
                 const course = bullet.course;
                 const style = bullet.div.style;
-                if (course.stepCount > 0) {
+                if (course != null && course.stepCount > 0) {
                     course.stepCount -= 1;
                     style.bottom = getIncrementedStyleValue(style.bottom, course.yStepDist);
                     style.left = getIncrementedStyleValue(style.left, course.xStepDist);
