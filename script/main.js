@@ -70,7 +70,7 @@ const STATS = {
         name: "GREED", icon: "$", color: "#b9ff5c",
         desc: "+15% XP & score",
         specs: [
-            { name: "MAGNETISM",   desc: "XP orbs are pulled toward you." },
+            { name: "JACKPOT",     desc: "25% chance to gain double XP from a kill." },
             { name: "BOUNTY",      desc: "Each kill restores 3 HP." },
             { name: "CHAIN BLAST", desc: "Kills explode for splash damage." },
         ],
@@ -138,7 +138,6 @@ const smokes = [];
 const particles = [];
 const dmgNumbers = [];
 const bombs = [];
-const xpOrbs = [];
 const cloudEntities = [];
 
 /* DOM refs */
@@ -324,10 +323,10 @@ function toggleMute() {
 function startGame() {
     /* nuke any leftovers */
     [...bullets, ...trails, ...enemies, ...explosions, ...shockwaves, ...smokes,
-     ...particles, ...dmgNumbers, ...bombs, ...xpOrbs].forEach(e => e.el && e.el.remove());
+     ...particles, ...dmgNumbers, ...bombs].forEach(e => e.el && e.el.remove());
     bullets.length = trails.length = enemies.length = explosions.length = 0;
     shockwaves.length = smokes.length = particles.length = dmgNumbers.length = 0;
-    bombs.length = xpOrbs.length = 0;
+    bombs.length = 0;
 
     Object.assign(state, {
         started: true, paused: false, gameOver: false, levelUpPending: false,
@@ -491,7 +490,6 @@ function fireDelay()     {
 function bulletSpeed()   { return 16 * Math.pow(1.15, state.statLevels.precision); }
 function xpMultiplier()  { return Math.pow(1.15, state.statLevels.greed); }
 function scoreMultiplier(){ return Math.pow(1.15, state.statLevels.greed); }
-function pickupRadius()  { return 70 + state.statLevels.greed * 8; }
 
 /* ====================================================================
  * Firing
@@ -644,7 +642,6 @@ function update(dtMs) {
     updateSmoke(dtMs);
     updateParticles(dt, dtMs);
     updateDmgNumbers(dtMs);
-    updateXpOrbs(dt, dtMs);
 
     /* shield aura toggle */
     cannonBase.classList.toggle("shielded", state.time < state.shieldUntil);
@@ -871,8 +868,8 @@ function destroyEnemy(e) {
     state.score += award;
     spawnComboPop(e.x + e.w / 2, e.y, `+${award}` + (state.combo > 1 ? `  x${state.combo}` : ""));
 
-    /* XP orbs scale with enemy type */
-    spawnXpOrb(e.x + e.w / 2, e.y + e.h / 2, e.xp || 10);
+    /* XP awarded directly on kill, scaled by enemy type */
+    awardXp(e.xp || 10);
 
     /* GREED spec 2: BOUNTY heal on kill */
     if (statSpec("greed") >= 2 && e.type !== "boss") {
@@ -1150,94 +1147,18 @@ function updateDmgNumbers(dtMs) {
 }
 
 /* ====================================================================
- * XP orbs & level-up
+ * XP & level-up
  * ==================================================================== */
 function xpForLevel(level) {
     return Math.round(50 + 25 * level + 5 * level * level);
 }
 
-function spawnXpOrb(x, y, value) {
-    /* split big drops into a couple of orbs for visual clarity */
-    const tier = value >= 100 ? "lg" : value >= 30 ? "md" : "sm";
-    const el = document.createElement("div");
-    el.className = "xp-orb " + tier;
-    el.textContent = value;
-    game.appendChild(el);
-    xpOrbs.push({
-        el, x, y,
-        vx: (Math.random() - 0.5) * 1.5,
-        vy: -1.2 - Math.random() * 0.6,
-        bob: Math.random() * Math.PI * 2,
-        value,
-        life: 0,
-        maxLife: 11000,
-        landed: false,
-    });
-}
-
-function updateXpOrbs(dt, dtMs) {
-    const cannonX = CANNON_PIVOT_X;
-    const cannonY = CANNON_PIVOT_Y - 20;
-    const magnetism = statSpec("greed") >= 1;
-    const radius = pickupRadius();
-
-    for (let i = xpOrbs.length - 1; i >= 0; i--) {
-        const o = xpOrbs[i];
-        o.life += dtMs;
-
-        const dx = cannonX - o.x;
-        const dy = cannonY - o.y;
-        const dist = Math.hypot(dx, dy);
-
-        if (magnetism && dist < 600) {
-            /* steady pull toward cannon, scaling up as closer */
-            const pull = 0.4 + (1 - Math.min(1, dist / 600)) * 0.6;
-            o.vx += (dx / dist) * pull * dt;
-            o.vy += (dy / dist) * pull * dt;
-            o.vx *= Math.pow(0.92, dt);
-            o.vy *= Math.pow(0.92, dt);
-        } else {
-            /* simple gravity until landed on ground */
-            if (!o.landed) {
-                o.vy += 0.06 * dt;
-                if (o.y >= GROUND_Y - 20) {
-                    o.y = GROUND_Y - 20;
-                    o.vy = 0;
-                    o.vx *= 0.5;
-                    o.landed = true;
-                }
-            } else {
-                o.vx *= Math.pow(0.9, dt);
-            }
-        }
-
-        o.x += o.vx * dt;
-        o.y += o.vy * dt;
-
-        o.bob += 0.08 * dt;
-        const pulse = 1 + Math.sin(o.bob) * 0.1;
-        o.el.style.transform = `translate3d(${o.x - 14}px, ${o.y - 14}px, 0) scale(${pulse})`;
-        o.el.style.opacity = o.life > o.maxLife - 1500 ? Math.max(0.2, (o.maxLife - o.life) / 1500) : 1;
-
-        /* pickup */
-        if (dist <= radius) {
-            collectXpOrb(o);
-            o.el.remove();
-            xpOrbs.splice(i, 1);
-            continue;
-        }
-
-        if (o.life >= o.maxLife) {
-            o.el.remove();
-            xpOrbs.splice(i, 1);
-        }
-    }
-}
-
-function collectXpOrb(o) {
-    audio.xpPick();
-    const gained = Math.round(o.value * xpMultiplier());
+function awardXp(amount) {
+    let gained = Math.round(amount * xpMultiplier());
+    /* GREED spec 1: JACKPOT — 25% chance to double XP */
+    if (statSpec("greed") >= 1 && Math.random() < 0.25) gained *= 2;
     state.xp += gained;
+    audio.xpPick();
     while (state.xp >= state.xpToNext) {
         state.xp -= state.xpToNext;
         state.level += 1;
