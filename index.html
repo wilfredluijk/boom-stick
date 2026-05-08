@@ -43,6 +43,14 @@
             <div class="hud-label">HULL</div>
             <div id="hp-bar"><div id="hp-fill"></div></div>
         </div>
+        <div class="hud-block hud-level">
+            <div class="hud-label">LEVEL</div>
+            <div id="level" class="hud-value">1</div>
+        </div>
+        <div class="hud-block hud-xp">
+            <div class="hud-label">XP</div>
+            <div id="xp-bar"><div id="xp-fill"></div></div>
+        </div>
         <div class="hud-block">
             <div class="hud-label">ACCURACY</div>
             <div id="accuracy" class="hud-value">100%</div>
@@ -53,7 +61,7 @@
         </div>
     </div>
 
-    <div id="powerup-bar"></div>
+    <div id="spec-bar"></div>
     <div id="message-layer"></div>
 
     <button id="pause" class="control-btn" title="Pause (Space)">II</button>
@@ -86,6 +94,14 @@
         <div class="overlay-inner">
             <h1 class="title-glow">PAUSED</h1>
             <button id="resume-btn" class="big-btn">RESUME</button>
+        </div>
+    </div>
+
+    <div id="levelup-screen" class="overlay hidden">
+        <div class="overlay-inner levelup-inner">
+            <h1 class="title-glow">LEVEL <span id="lvl-up-level">2</span></h1>
+            <p class="tagline">Choose an upgrade</p>
+            <div id="upgrade-cards"></div>
         </div>
     </div>
 </div>

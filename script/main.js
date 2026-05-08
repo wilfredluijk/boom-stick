@@ -17,14 +17,66 @@ const TARGET_DT = 1000 / 60;        // physics base step
 const STORAGE_KEY = "boomstick.best.v1";
 
 const ENEMY_TYPES = {
-    scout:  { hp: 40,  width: 160, height: 80,  baseSpeed: 2.4, score: 100, dropChance: 0.10, bombChance: 0,    altitudeRange: [120, 320] },
-    heli:   { hp: 100, width: 220, height: 110, baseSpeed: 1.6, score: 250, dropChance: 0.14, bombChance: 0.004,altitudeRange: [180, 360] },
-    heavy:  { hp: 260, width: 280, height: 140, baseSpeed: 1.0, score: 500, dropChance: 0.30, bombChance: 0.012,altitudeRange: [140, 300] },
-    jet:    { hp: 60,  width: 90,  height: 36,  baseSpeed: 7.5, score: 350, dropChance: 0.12, bombChance: 0,    altitudeRange: [80,  260] },
-    boss:   { hp: 2200,width: 420, height: 210, baseSpeed: 0.6, score: 5000,dropChance: 1.0,  bombChance: 0.020,altitudeRange: [120, 240] },
+    scout:  { hp: 40,  width: 160, height: 80,  baseSpeed: 2.4, score: 100, xp: 10,  bombChance: 0,    altitudeRange: [120, 320] },
+    heli:   { hp: 100, width: 220, height: 110, baseSpeed: 1.6, score: 250, xp: 25,  bombChance: 0.004,altitudeRange: [180, 360] },
+    heavy:  { hp: 260, width: 280, height: 140, baseSpeed: 1.0, score: 500, xp: 60,  bombChance: 0.012,altitudeRange: [140, 300] },
+    jet:    { hp: 60,  width: 90,  height: 36,  baseSpeed: 7.5, score: 350, xp: 20,  bombChance: 0,    altitudeRange: [80,  260] },
+    boss:   { hp: 2200,width: 420, height: 210, baseSpeed: 0.6, score: 5000,xp: 300, bombChance: 0.020,altitudeRange: [120, 240] },
 };
 
-const POWERUPS = ["rapid", "multi", "shield", "nuke", "heal"];
+/* ====================================================================
+ * Stat & Specialization definitions
+ * Each level-up the player picks ONE of these. Every 3rd upgrade in a
+ * given stat unlocks the next specialization (max 3 per stat).
+ * ==================================================================== */
+const STATS = {
+    damage: {
+        name: "FIREPOWER", icon: "★", color: "#ffd23f",
+        desc: "+15% bullet damage",
+        specs: [
+            { name: "PIERCING",  desc: "Bullets penetrate one extra target." },
+            { name: "EXPLOSIVE", desc: "Every hit triggers a small blast." },
+            { name: "CRITICAL",  desc: "30% chance to deal double damage." },
+        ],
+    },
+    fireRate: {
+        name: "RATE OF FIRE", icon: "⏱", color: "#41e0a4",
+        desc: "+12% fire rate",
+        specs: [
+            { name: "AUTO-FIRE",   desc: "Hold to keep firing without limit." },
+            { name: "TRIPLE SHOT", desc: "Every salvo fires three bullets." },
+            { name: "MISSILES",    desc: "All bullets become heavy missiles." },
+        ],
+    },
+    hull: {
+        name: "HULL", icon: "❤", color: "#ff6688",
+        desc: "+25 max HP, full repair",
+        specs: [
+            { name: "REGENERATION",     desc: "Slowly restore HP over time." },
+            { name: "REACTIVE PLATING", desc: "Take 30% less damage." },
+            { name: "GUARDIAN",         desc: "Brief shield after every hit." },
+        ],
+    },
+    precision: {
+        name: "PRECISION", icon: "◎", color: "#50b8ff",
+        desc: "+15% bullet speed",
+        specs: [
+            { name: "HOMING",         desc: "Bullets curve toward enemies." },
+            { name: "WIDE LOCK",      desc: "Two extra auto-aimed side-shots." },
+            { name: "TIME DILATION",  desc: "Enemies move 30% slower." },
+        ],
+    },
+    greed: {
+        name: "GREED", icon: "$", color: "#b9ff5c",
+        desc: "+15% XP & score",
+        specs: [
+            { name: "MAGNETISM",   desc: "XP orbs are pulled toward you." },
+            { name: "BOUNTY",      desc: "Each kill restores 3 HP." },
+            { name: "CHAIN BLAST", desc: "Kills explode for splash damage." },
+        ],
+    },
+};
+const STAT_KEYS = Object.keys(STATS);
 
 /* ====================================================================
  * Game state
@@ -33,6 +85,7 @@ const state = {
     started: false,
     paused: false,
     gameOver: false,
+    levelUpPending: false,           // game frozen for upgrade choice
     muted: false,
     time: 0,
     lastFrameMs: 0,
@@ -47,6 +100,8 @@ const state = {
 
     hp: 100,
     maxHp: 100,
+    regenAcc: 0,                     // fractional HP accumulator for regen
+    shieldUntil: 0,                  // post-hit guardian shield window
 
     combo: 0,
     comboTimer: 0,
@@ -59,10 +114,13 @@ const state = {
     cannonAngle: -Math.PI / 4,
 
     fireCooldown: 0,
-    baseFireDelay: 200,                 // ms between shots
-    rapidUntil: 0,
-    multiUntil: 0,
-    shieldUntil: 0,
+    baseFireDelay: 280,              // ms between shots (slower default; stat speeds up)
+
+    /* Progression */
+    level: 1,
+    xp: 0,
+    xpToNext: 60,
+    statLevels: { damage: 0, fireRate: 0, hull: 0, precision: 0, greed: 0 },
 
     shakeUntil: 0,
     shakeMag: 0,
@@ -80,13 +138,15 @@ const smokes = [];
 const particles = [];
 const dmgNumbers = [];
 const bombs = [];
-const powerups = [];
+const xpOrbs = [];
 const cloudEntities = [];
 
 /* DOM refs */
 let root, game, msgLayer, scoreEl, waveEl, comboEl, hpFill, accEl, bestEl;
-let cannonPivot, muzzle, crosshair, cannonBase, powerupBar;
+let levelEl, xpFill;
+let cannonPivot, muzzle, crosshair, cannonBase, specBar;
 let pauseBtn, muteBtn, startScreen, gameOverScreen, pauseScreen, finalStats;
+let levelUpScreen, levelUpLevelEl, upgradeCardsEl;
 let cloudsLayer, sky, sun, moon, stars;
 
 /* ====================================================================
@@ -145,7 +205,12 @@ const audio = {
     shoot()    { this.blip({ freq: 720, dur: 0.08, type: "square", vol: 0.12, slide: -400 }); },
     explosion(){ this.noise({ dur: 0.45, vol: 0.5, hp: 600 }); this.blip({ freq: 110, dur: 0.25, type: "sawtooth", vol: 0.18, slide: -80 }); },
     hit()      { this.blip({ freq: 1100, dur: 0.05, type: "triangle", vol: 0.1, slide: 200 }); },
-    powerup()  { this.blip({ freq: 660, dur: 0.08, vol: 0.18 }); setTimeout(() => this.blip({ freq: 990, dur: 0.12, vol: 0.18 }), 70); },
+    xpPick()   { this.blip({ freq: 880, dur: 0.06, type: "sine", vol: 0.12 }); },
+    levelUp()  {
+        this.blip({ freq: 440, dur: 0.12, type: "triangle", vol: 0.22 });
+        setTimeout(() => this.blip({ freq: 660, dur: 0.12, type: "triangle", vol: 0.22 }), 110);
+        setTimeout(() => this.blip({ freq: 880, dur: 0.20, type: "triangle", vol: 0.22 }), 220);
+    },
     damage()   { this.noise({ dur: 0.18, vol: 0.4, hp: 300 }); },
     waveStart(){ this.blip({ freq: 200, dur: 0.12, type: "sine", vol: 0.2 }); setTimeout(() => this.blip({ freq: 400, dur: 0.18, type: "sine", vol: 0.2 }), 120); },
     bossAlarm(){ for (let i = 0; i < 3; i++) setTimeout(() => this.blip({ freq: 220, dur: 0.18, type: "sawtooth", vol: 0.25, slide: 120 }), i * 220); },
@@ -166,17 +231,22 @@ function init() {
     hpFill = document.getElementById("hp-fill");
     accEl = document.getElementById("accuracy");
     bestEl = document.getElementById("best");
+    levelEl = document.getElementById("level");
+    xpFill = document.getElementById("xp-fill");
     cannonPivot = document.getElementById("cannon-pivot");
     muzzle = document.getElementById("muzzle");
     crosshair = document.getElementById("crosshair");
     cannonBase = document.getElementById("cannon-base");
-    powerupBar = document.getElementById("powerup-bar");
+    specBar = document.getElementById("spec-bar");
     pauseBtn = document.getElementById("pause");
     muteBtn = document.getElementById("mute");
     startScreen = document.getElementById("start-screen");
     gameOverScreen = document.getElementById("gameover-screen");
     pauseScreen = document.getElementById("pause-screen");
     finalStats = document.getElementById("final-stats");
+    levelUpScreen = document.getElementById("levelup-screen");
+    levelUpLevelEl = document.getElementById("lvl-up-level");
+    upgradeCardsEl = document.getElementById("upgrade-cards");
     cloudsLayer = document.getElementById("clouds");
     sky = document.getElementById("sky");
     sun = document.getElementById("sun");
@@ -218,7 +288,7 @@ function onMouseMove(e) {
 }
 
 function onMouseDown(e) {
-    if (!state.started || state.paused || state.gameOver) return;
+    if (!state.started || state.paused || state.gameOver || state.levelUpPending) return;
     mouseDown = true;
     audio.init();
     fireFromCannon();
@@ -226,10 +296,14 @@ function onMouseDown(e) {
 function onMouseUp() { mouseDown = false; }
 
 function onKey(e) {
-    if (e.code === "Space") { e.preventDefault(); if (state.started && !state.gameOver) togglePause(); }
+    if (e.code === "Space") { e.preventDefault(); if (state.started && !state.gameOver && !state.levelUpPending) togglePause(); }
     else if (e.code === "KeyM") toggleMute();
     else if (e.code === "KeyR") startGame();
     else if (e.code === "Enter" && !state.started) startGame();
+    else if (state.levelUpPending && e.code >= "Digit1" && e.code <= "Digit5") {
+        const idx = Number(e.code.slice(-1)) - 1;
+        if (idx >= 0 && idx < STAT_KEYS.length) chooseUpgrade(STAT_KEYS[idx]);
+    }
 }
 
 function togglePause(force) {
@@ -250,28 +324,31 @@ function toggleMute() {
 function startGame() {
     /* nuke any leftovers */
     [...bullets, ...trails, ...enemies, ...explosions, ...shockwaves, ...smokes,
-     ...particles, ...dmgNumbers, ...bombs, ...powerups].forEach(e => e.el && e.el.remove());
+     ...particles, ...dmgNumbers, ...bombs, ...xpOrbs].forEach(e => e.el && e.el.remove());
     bullets.length = trails.length = enemies.length = explosions.length = 0;
     shockwaves.length = smokes.length = particles.length = dmgNumbers.length = 0;
-    bombs.length = powerups.length = 0;
+    bombs.length = xpOrbs.length = 0;
 
     Object.assign(state, {
-        started: true, paused: false, gameOver: false,
+        started: true, paused: false, gameOver: false, levelUpPending: false,
         score: 0, wave: 0, waveActive: false, spawnQueue: [], nextSpawnAt: 0, waveCleanupTimer: 0,
-        hp: 100, maxHp: 100,
+        hp: 100, maxHp: 100, regenAcc: 0, shieldUntil: 0,
         combo: 0, comboTimer: 0,
         shotsFired: 0, shotsHit: 0,
-        rapidUntil: 0, multiUntil: 0, shieldUntil: 0,
         fireCooldown: 0, shakeUntil: 0, shakeMag: 0,
+        level: 1, xp: 0, xpToNext: xpForLevel(1),
+        statLevels: { damage: 0, fireRate: 0, hull: 0, precision: 0, greed: 0 },
         bossActive: false,
     });
 
     startScreen.classList.add("hidden");
     gameOverScreen.classList.add("hidden");
     pauseScreen.classList.add("hidden");
+    levelUpScreen.classList.add("hidden");
     root.classList.remove("low-hp");
 
     updateHUD();
+    renderSpecBar();
     audio.init();
     setTimeout(() => startNextWave(), 600);
 }
@@ -286,6 +363,7 @@ function endGame() {
     finalStats.innerHTML = `
         <div class="stat-line"><span class="label">SCORE</span><span class="val">${state.score}</span></div>
         <div class="stat-line"><span class="label">WAVE</span><span class="val">${state.wave}</span></div>
+        <div class="stat-line"><span class="label">LEVEL</span><span class="val">${state.level}</span></div>
         <div class="stat-line"><span class="label">ACCURACY</span><span class="val">${acc}%</span></div>
         <div class="stat-line"><span class="label">BEST</span><span class="val">${state.best}</span></div>
     `;
@@ -373,7 +451,7 @@ function spawnEnemy(type) {
         hp: type === "boss" ? def.hp + state.wave * 50 : def.hp + Math.floor(state.wave * 1.5),
         maxHp: 0,
         score: def.score,
-        dropChance: def.dropChance,
+        xp: def.xp,
         bombChance: def.bombChance,
         crashing: false,
         crashRot: 0,
@@ -400,12 +478,27 @@ function renderEnemy(e) {
 }
 
 /* ====================================================================
+ * Stat-derived helpers
+ * ==================================================================== */
+function statSpec(key) {                     /* unlocked specialization tier 0..3 */
+    return Math.min(3, Math.floor(state.statLevels[key] / 3));
+}
+function bulletDamage()  { return 25 * Math.pow(1.15, state.statLevels.damage); }
+function fireDelay()     {
+    const reduced = state.baseFireDelay * Math.pow(0.88, state.statLevels.fireRate);
+    return Math.max(70, reduced);
+}
+function bulletSpeed()   { return 16 * Math.pow(1.15, state.statLevels.precision); }
+function xpMultiplier()  { return Math.pow(1.15, state.statLevels.greed); }
+function scoreMultiplier(){ return Math.pow(1.15, state.statLevels.greed); }
+function pickupRadius()  { return 70 + state.statLevels.greed * 8; }
+
+/* ====================================================================
  * Firing
  * ==================================================================== */
 function fireFromCannon() {
-    const fireDelay = state.time < state.rapidUntil ? state.baseFireDelay / 3 : state.baseFireDelay;
     if (state.fireCooldown > state.time) return;
-    state.fireCooldown = state.time + fireDelay;
+    state.fireCooldown = state.time + fireDelay();
 
     const dx = state.aimX - CANNON_PIVOT_X;
     const dy = state.aimY - CANNON_PIVOT_Y;
@@ -415,10 +508,22 @@ function fireFromCannon() {
     const muzzleX = CANNON_PIVOT_X + Math.cos(ang) * BARREL_LENGTH;
     const muzzleY = CANNON_PIVOT_Y + Math.sin(ang) * BARREL_LENGTH;
 
-    const multi = state.time < state.multiUntil;
-    const spreadAngles = multi ? [-0.10, 0, 0.10] : [0];
-    spreadAngles.forEach(off => spawnBullet(muzzleX, muzzleY, ang + off, multi));
+    /* TRIPLE SHOT specialization (fire-rate spec 2) */
+    const spreadAngles = statSpec("fireRate") >= 2 ? [-0.10, 0, 0.10] : [0];
+    const missile = statSpec("fireRate") >= 3;     /* MISSILES spec 3 */
+
+    spreadAngles.forEach(off => spawnBullet(muzzleX, muzzleY, ang + off, missile));
     state.shotsFired += spreadAngles.length;
+
+    /* WIDE LOCK precision spec 2: two extra side-shots auto-aim at nearest enemies */
+    if (statSpec("precision") >= 2) {
+        const targets = nearestEnemies(2, muzzleX, muzzleY);
+        targets.forEach(tgt => {
+            const tang = Math.atan2((tgt.y + tgt.h / 2) - muzzleY, (tgt.x + tgt.w / 2) - muzzleX);
+            spawnBullet(muzzleX, muzzleY, tang, missile);
+            state.shotsFired += 1;
+        });
+    }
 
     /* muzzle flash */
     muzzle.classList.add("flash");
@@ -426,7 +531,6 @@ function fireFromCannon() {
 
     /* recoil */
     cannonPivot.style.transition = "transform 0.05s linear";
-    const recoil = -8;
     cannonPivot.dataset.recoil = "1";
     setTimeout(() => { cannonPivot.dataset.recoil = "0"; }, 60);
 
@@ -434,17 +538,27 @@ function fireFromCannon() {
 }
 
 function spawnBullet(x, y, ang, missile) {
-    const speed = 16;
+    const speed = bulletSpeed();
     const el = document.createElement("div");
     el.className = "bullet" + (missile ? " missile" : "");
     game.appendChild(el);
+    let dmg = bulletDamage() * (missile ? 1.4 : 1);
+    let crit = false;
+    if (statSpec("damage") >= 3 && Math.random() < 0.30) {
+        dmg *= 2;
+        crit = true;
+    }
+    const pierce = statSpec("damage") >= 1 ? 1 : 0;
     bullets.push({
         el, x, y,
         vx: Math.cos(ang) * speed,
         vy: Math.sin(ang) * speed,
         ttl: 1500,
-        damage: missile ? 35 : 25,
+        damage: dmg,
         missile,
+        crit,
+        pierce,
+        hitIds: new Set(),       /* avoid hitting same enemy twice while piercing */
         ang,
     });
     el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${ang}rad)`;
@@ -457,7 +571,7 @@ function loop(ts) {
     if (!state.lastFrameMs) state.lastFrameMs = ts;
     const dtMs = Math.min(64, ts - state.lastFrameMs);
     state.lastFrameMs = ts;
-    if (state.started && !state.paused && !state.gameOver) {
+    if (state.started && !state.paused && !state.gameOver && !state.levelUpPending) {
         state.time += dtMs;
         update(dtMs);
     }
@@ -468,7 +582,8 @@ function loop(ts) {
 function update(dtMs) {
     const dt = dtMs / TARGET_DT;        /* normalized step (1.0 = 60fps frame) */
 
-    if (mouseDown && state.time < state.rapidUntil) fireFromCannon();
+    /* AUTO-FIRE specialization (fire-rate spec 1): hold to keep firing */
+    if (mouseDown && statSpec("fireRate") >= 1) fireFromCannon();
 
     /* aim cannon */
     const dx = state.aimX - CANNON_PIVOT_X;
@@ -488,6 +603,17 @@ function update(dtMs) {
         }
     }
 
+    /* HULL spec 1: regeneration */
+    if (statSpec("hull") >= 1 && state.hp < state.maxHp) {
+        state.regenAcc += 0.5 * (dtMs / 1000);   /* 0.5 HP/s */
+        if (state.regenAcc >= 1) {
+            const add = Math.floor(state.regenAcc);
+            state.regenAcc -= add;
+            state.hp = Math.min(state.maxHp, state.hp + add);
+            updateHUD();
+        }
+    }
+
     /* spawn queue */
     if (state.waveActive && state.spawnQueue.length && state.time >= state.nextSpawnAt) {
         spawnEnemy(state.spawnQueue.shift());
@@ -500,7 +626,7 @@ function update(dtMs) {
             state.waveActive = false;
             state.bossActive = false;
             state.waveCleanupTimer = 0;
-            const bonus = state.wave * 50;
+            const bonus = Math.round(state.wave * 50 * scoreMultiplier());
             state.score += bonus;
             showBanner(`WAVE CLEAR  +${bonus}`, "", 1500);
             updateHUD();
@@ -518,8 +644,7 @@ function update(dtMs) {
     updateSmoke(dtMs);
     updateParticles(dt, dtMs);
     updateDmgNumbers(dtMs);
-    updatePowerups(dt, dtMs);
-    updatePowerupBar();
+    updateXpOrbs(dt, dtMs);
 
     /* shield aura toggle */
     cannonBase.classList.toggle("shielded", state.time < state.shieldUntil);
@@ -543,8 +668,26 @@ function update(dtMs) {
  * Bullets
  * ==================================================================== */
 function updateBullets(dt, dtMs) {
+    const homing = statSpec("precision") >= 1;
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
+
+        /* HOMING: gently steer toward nearest enemy in front of bullet */
+        if (homing) {
+            const tgt = nearestEnemyForBullet(b);
+            if (tgt) {
+                const desired = Math.atan2((tgt.y + tgt.h / 2) - b.y, (tgt.x + tgt.w / 2) - b.x);
+                let delta = desired - b.ang;
+                while (delta >  Math.PI) delta -= Math.PI * 2;
+                while (delta < -Math.PI) delta += Math.PI * 2;
+                const turn = Math.max(-0.06 * dt, Math.min(0.06 * dt, delta));
+                b.ang += turn;
+                const sp = Math.hypot(b.vx, b.vy);
+                b.vx = Math.cos(b.ang) * sp;
+                b.vy = Math.sin(b.ang) * sp;
+            }
+        }
+
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.ttl -= dtMs;
@@ -564,14 +707,26 @@ function updateBullets(dt, dtMs) {
         for (let j = 0; j < enemies.length; j++) {
             const e = enemies[j];
             if (e.crashing) continue;
+            if (b.hitIds.has(e)) continue;
             if (b.x >= e.x && b.x <= e.x + e.w && b.y >= e.y && b.y <= e.y + e.h) {
                 hit = e; break;
             }
         }
         if (hit) {
-            applyDamage(hit, b.damage, b.x, b.y, b.missile);
+            applyDamage(hit, b.damage, b.x, b.y, b.crit || b.missile);
             spawnSparks(b.x, b.y, 6, "#ffd070");
-            killBullet(i);
+
+            /* EXPLOSIVE specialization: small blast on every hit */
+            if (statSpec("damage") >= 2) {
+                spawnExplosion(b.x, b.y, 0.45);
+            }
+
+            b.hitIds.add(hit);
+            if (b.pierce > 0) {
+                b.pierce -= 1;
+            } else {
+                killBullet(i);
+            }
         }
     }
 
@@ -587,6 +742,35 @@ function updateBullets(dt, dtMs) {
             t.el.style.opacity = a;
         }
     }
+}
+
+function nearestEnemyForBullet(b) {
+    let best = null, bestDist = Infinity;
+    const lookAhead = 200;
+    for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.crashing) continue;
+        const cx = e.x + e.w / 2;
+        const cy = e.y + e.h / 2;
+        const dx = cx - b.x, dy = cy - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 700) continue;
+        /* forward cone check: dot product with bullet velocity */
+        const dot = (dx * b.vx + dy * b.vy);
+        if (dot < 0) continue;
+        if (dist < bestDist) { bestDist = dist; best = e; }
+    }
+    return best;
+}
+
+function nearestEnemies(n, x, y) {
+    const list = enemies
+        .filter(e => !e.crashing)
+        .map(e => ({ e, d: Math.hypot((e.x + e.w / 2) - x, (e.y + e.h / 2) - y) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, n)
+        .map(o => o.e);
+    return list;
 }
 
 function spawnTrail(x, y, missile) {
@@ -607,6 +791,9 @@ function killBullet(i) {
  * Enemies
  * ==================================================================== */
 function updateEnemies(dt, dtMs) {
+    /* TIME DILATION precision spec 3: enemies move slower */
+    const speedFactor = statSpec("precision") >= 3 ? 0.7 : 1;
+
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.bobPhase += 0.04 * dt;
@@ -625,7 +812,6 @@ function updateEnemies(dt, dtMs) {
             renderEnemy(e);
             if (e.y >= GROUND_Y - e.h * 0.4) {
                 spawnExplosion(e.x + e.w / 2, GROUND_Y - 10, 1.5 + (e.type === "heavy" || e.type === "boss" ? 1.2 : 0));
-                if (Math.random() < e.dropChance) spawnPowerup(e.x + e.w / 2, GROUND_Y - 30);
                 e.el.remove();
                 enemies.splice(i, 1);
                 shake(e.type === "boss" ? 3 : e.type === "heavy" ? 2 : 1);
@@ -639,7 +825,7 @@ function updateEnemies(dt, dtMs) {
             e.y = e.baseY + Math.sin(state.time * 0.0014) * 30;
         }
 
-        e.x += e.vx * dt;
+        e.x += e.vx * dt * speedFactor;
 
         /* random bomb drop */
         if (e.bombChance > 0 && Math.random() < e.bombChance * dt) {
@@ -681,16 +867,27 @@ function destroyEnemy(e) {
     state.comboTimer = 2200;
     state.shotsHit += 1;
     const mult = 1 + state.combo * 0.1;
-    const award = Math.round(e.score * mult);
+    const award = Math.round(e.score * mult * scoreMultiplier());
     state.score += award;
     spawnComboPop(e.x + e.w / 2, e.y, `+${award}` + (state.combo > 1 ? `  x${state.combo}` : ""));
-    if (Math.random() < e.dropChance && e.type !== "boss") spawnPowerup(e.x + e.w / 2, e.y + 20);
+
+    /* XP orbs scale with enemy type */
+    spawnXpOrb(e.x + e.w / 2, e.y + e.h / 2, e.xp || 10);
+
+    /* GREED spec 2: BOUNTY heal on kill */
+    if (statSpec("greed") >= 2 && e.type !== "boss") {
+        state.hp = Math.min(state.maxHp, state.hp + 3);
+    }
+    /* GREED spec 3: CHAIN BLAST splash */
+    if (statSpec("greed") >= 3) {
+        spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, 0.9);
+    }
+
     if (e.type === "jet") {
         spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, 1.2);
         e.el.remove();
         const idx = enemies.indexOf(e);
         if (idx !== -1) enemies.splice(idx, 1);
-        if (Math.random() < e.dropChance) spawnPowerup(e.x + e.w / 2, e.y + 30);
     }
     updateHUD();
 }
@@ -748,10 +945,14 @@ function updateBombs(dt, dtMs) {
 
 function damagePlayer(amount) {
     if (state.time < state.shieldUntil) return;
+    /* HULL spec 2: REACTIVE PLATING — 30% damage reduction */
+    if (statSpec("hull") >= 2) amount = Math.round(amount * 0.7);
     state.hp -= amount;
     state.combo = 0;
     audio.damage();
     flashHud();
+    /* HULL spec 3: GUARDIAN — short shield window after taking damage */
+    if (statSpec("hull") >= 3) state.shieldUntil = state.time + 1500;
     if (state.hp <= 0) {
         state.hp = 0;
         updateHUD();
@@ -949,103 +1150,179 @@ function updateDmgNumbers(dtMs) {
 }
 
 /* ====================================================================
- * Power-ups
+ * XP orbs & level-up
  * ==================================================================== */
-function spawnPowerup(x, y) {
-    const types = ["rapid", "multi", "shield", "nuke", "heal"];
-    const weights = [3, 3, 2, 1, state.hp < 60 ? 3 : 1];
-    const type = weightedPick(types, weights);
+function xpForLevel(level) {
+    return Math.round(50 + 25 * level + 5 * level * level);
+}
+
+function spawnXpOrb(x, y, value) {
+    /* split big drops into a couple of orbs for visual clarity */
+    const tier = value >= 100 ? "lg" : value >= 30 ? "md" : "sm";
     const el = document.createElement("div");
-    el.className = "powerup " + type;
-    el.textContent = puIcon(type);
+    el.className = "xp-orb " + tier;
+    el.textContent = value;
     game.appendChild(el);
-    powerups.push({
+    xpOrbs.push({
         el, x, y,
-        vy: 0,
+        vx: (Math.random() - 0.5) * 1.5,
+        vy: -1.2 - Math.random() * 0.6,
         bob: Math.random() * Math.PI * 2,
-        type,
-        life: 0, maxLife: 9000,
+        value,
+        life: 0,
+        maxLife: 11000,
+        landed: false,
     });
 }
 
-function puIcon(t) {
-    return ({ rapid: "R", multi: "M", shield: "S", nuke: "N", heal: "+" })[t];
-}
+function updateXpOrbs(dt, dtMs) {
+    const cannonX = CANNON_PIVOT_X;
+    const cannonY = CANNON_PIVOT_Y - 20;
+    const magnetism = statSpec("greed") >= 1;
+    const radius = pickupRadius();
 
-function updatePowerups(dt, dtMs) {
-    for (let i = powerups.length - 1; i >= 0; i--) {
-        const p = powerups[i];
-        p.life += dtMs;
-        p.vy += 0.05 * dt;
-        if (p.y < GROUND_Y - 40) p.y += p.vy * dt;
-        p.bob += 0.08 * dt;
-        const pulse = 1 + Math.sin(p.bob) * 0.08;
-        p.el.style.transform = `translate3d(${p.x - 18}px, ${p.y - 18}px, 0) scale(${pulse})`;
+    for (let i = xpOrbs.length - 1; i >= 0; i--) {
+        const o = xpOrbs[i];
+        o.life += dtMs;
 
-        /* bullet/aim collect — easier: bullet hit */
-        let collected = false;
-        for (let j = bullets.length - 1; j >= 0; j--) {
-            const b = bullets[j];
-            if (Math.abs(b.x - p.x) < 24 && Math.abs(b.y - p.y) < 24) {
-                collected = true;
-                killBullet(j);
-                break;
+        const dx = cannonX - o.x;
+        const dy = cannonY - o.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (magnetism && dist < 600) {
+            /* steady pull toward cannon, scaling up as closer */
+            const pull = 0.4 + (1 - Math.min(1, dist / 600)) * 0.6;
+            o.vx += (dx / dist) * pull * dt;
+            o.vy += (dy / dist) * pull * dt;
+            o.vx *= Math.pow(0.92, dt);
+            o.vy *= Math.pow(0.92, dt);
+        } else {
+            /* simple gravity until landed on ground */
+            if (!o.landed) {
+                o.vy += 0.06 * dt;
+                if (o.y >= GROUND_Y - 20) {
+                    o.y = GROUND_Y - 20;
+                    o.vy = 0;
+                    o.vx *= 0.5;
+                    o.landed = true;
+                }
+            } else {
+                o.vx *= Math.pow(0.9, dt);
             }
         }
-        /* auto-collect when near ground (forgiving) */
-        if (!collected && p.y >= GROUND_Y - 40) collected = true;
 
-        if (collected) {
-            applyPowerup(p.type);
-            p.el.remove();
-            powerups.splice(i, 1);
+        o.x += o.vx * dt;
+        o.y += o.vy * dt;
+
+        o.bob += 0.08 * dt;
+        const pulse = 1 + Math.sin(o.bob) * 0.1;
+        o.el.style.transform = `translate3d(${o.x - 14}px, ${o.y - 14}px, 0) scale(${pulse})`;
+        o.el.style.opacity = o.life > o.maxLife - 1500 ? Math.max(0.2, (o.maxLife - o.life) / 1500) : 1;
+
+        /* pickup */
+        if (dist <= radius) {
+            collectXpOrb(o);
+            o.el.remove();
+            xpOrbs.splice(i, 1);
             continue;
         }
 
-        if (p.life >= p.maxLife) {
-            p.el.remove();
-            powerups.splice(i, 1);
+        if (o.life >= o.maxLife) {
+            o.el.remove();
+            xpOrbs.splice(i, 1);
         }
     }
 }
 
-function applyPowerup(type) {
-    audio.powerup();
-    if (type === "rapid")  { state.rapidUntil = state.time + 8000;  showBanner("RAPID FIRE", "", 900); }
-    if (type === "multi")  { state.multiUntil = state.time + 7000;  showBanner("MULTI-SHOT", "", 900); }
-    if (type === "shield") { state.shieldUntil = state.time + 6000; showBanner("SHIELD UP", "", 900); }
-    if (type === "heal")   { state.hp = Math.min(state.maxHp, state.hp + 35); showBanner("HULL REPAIR", "", 900); updateHUD(); }
-    if (type === "nuke")   { nukeAllEnemies(); showBanner("NUKE!", "warn", 1100); }
+function collectXpOrb(o) {
+    audio.xpPick();
+    const gained = Math.round(o.value * xpMultiplier());
+    state.xp += gained;
+    while (state.xp >= state.xpToNext) {
+        state.xp -= state.xpToNext;
+        state.level += 1;
+        state.xpToNext = xpForLevel(state.level);
+        triggerLevelUp();
+    }
+    updateHUD();
 }
 
-function nukeAllEnemies() {
-    shake(3);
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        const e = enemies[i];
-        spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, 1.4);
-        applyDamage(e, 9999, e.x + e.w / 2, e.y + e.h / 2, true);
-    }
-    for (let i = bombs.length - 1; i >= 0; i--) {
-        const b = bombs[i];
-        spawnExplosion(b.x, b.y, 0.7);
-        b.el.remove();
-        bombs.splice(i, 1);
-    }
-}
+function triggerLevelUp() {
+    state.levelUpPending = true;
+    audio.levelUp();
+    levelUpLevelEl.textContent = state.level;
+    upgradeCardsEl.innerHTML = "";
 
-function updatePowerupBar() {
-    const items = [];
-    if (state.time < state.rapidUntil)  items.push({ name: "RAPID",  t: state.rapidUntil  - state.time, color: "#ffd23f" });
-    if (state.time < state.multiUntil)  items.push({ name: "MULTI",  t: state.multiUntil  - state.time, color: "#41e0a4" });
-    if (state.time < state.shieldUntil) items.push({ name: "SHIELD", t: state.shieldUntil - state.time, color: "#50b8ff" });
-    powerupBar.innerHTML = "";
-    items.forEach(it => {
-        const d = document.createElement("div");
-        d.className = "powerup-icon";
-        d.style.color = it.color;
-        d.innerHTML = `<div class="pu-time">${(it.t / 1000).toFixed(1)}</div><div class="pu-name">${it.name}</div>`;
-        powerupBar.appendChild(d);
+    STAT_KEYS.forEach((key, idx) => {
+        const def = STATS[key];
+        const lvl = state.statLevels[key];
+        const nextLvl = lvl + 1;
+        const currentSpec = Math.min(3, Math.floor(lvl / 3));
+        const nextSpec = Math.min(3, Math.floor(nextLvl / 3));
+        const unlocking = nextSpec > currentSpec ? def.specs[nextSpec - 1] : null;
+
+        const card = document.createElement("button");
+        card.className = "upgrade-card stat-" + key;
+        card.style.borderColor = def.color;
+        card.style.boxShadow = `0 0 18px ${def.color}55, inset 0 0 20px rgba(0,0,0,0.5)`;
+
+        const specPipsHtml = [0, 1, 2].map(i =>
+            `<div class="spec-pip ${i < nextSpec ? 'on' : ''} ${i === nextSpec - 1 && unlocking ? 'new' : ''}" style="${i < nextSpec ? 'background:' + def.color : ''}"></div>`
+        ).join("");
+
+        card.innerHTML = `
+            <div class="card-key">${idx + 1}</div>
+            <div class="card-icon" style="color:${def.color}">${def.icon}</div>
+            <div class="card-name" style="color:${def.color}">${def.name}</div>
+            <div class="card-level">LV ${lvl} → ${nextLvl}</div>
+            <div class="card-desc">${def.desc}</div>
+            <div class="card-pips">${specPipsHtml}</div>
+            ${unlocking
+                ? `<div class="card-unlock"><div class="unlock-tag">UNLOCKS</div><div class="unlock-name" style="color:${def.color}">${unlocking.name}</div><div class="unlock-desc">${unlocking.desc}</div></div>`
+                : (nextSpec >= 3
+                    ? `<div class="card-unlock muted"><div class="unlock-tag">ALL SPECS UNLOCKED</div><div class="unlock-desc">Stat continues to grow.</div></div>`
+                    : `<div class="card-unlock muted"><div class="unlock-tag">NEXT SPEC IN ${3 - (nextLvl % 3)} LV</div><div class="unlock-desc">Spec ${nextSpec + 1}: ${def.specs[nextSpec].name}</div></div>`)
+            }
+        `;
+        card.addEventListener("click", () => chooseUpgrade(key));
+        upgradeCardsEl.appendChild(card);
     });
+
+    levelUpScreen.classList.remove("hidden");
+}
+
+function chooseUpgrade(key) {
+    if (!state.levelUpPending) return;
+    const prevSpec = statSpec(key);
+    state.statLevels[key] += 1;
+    const newSpec = statSpec(key);
+
+    /* HULL upgrade: bump max HP and full repair */
+    if (key === "hull") {
+        state.maxHp += 25;
+        state.hp = state.maxHp;
+    }
+
+    /* if a new specialization unlocked, banner it */
+    if (newSpec > prevSpec) {
+        const specName = STATS[key].specs[newSpec - 1].name;
+        showBanner(`${specName} UNLOCKED`, "", 1600);
+    }
+
+    state.levelUpPending = false;
+    levelUpScreen.classList.add("hidden");
+    updateHUD();
+    renderSpecBar();
+
+    /* if more queued level-ups remain (unlikely, but defensive), trigger again */
+    if (state.xp >= state.xpToNext) {
+        while (state.xp >= state.xpToNext) {
+            state.xp -= state.xpToNext;
+            state.level += 1;
+            state.xpToNext = xpForLevel(state.level);
+        }
+        triggerLevelUp();
+    }
 }
 
 /* ====================================================================
@@ -1062,6 +1339,32 @@ function updateHUD() {
     hpFill.style.width = pct + "%";
     hpFill.classList.toggle("low", state.hp <= 30);
     bestEl.textContent = Math.max(state.best, state.score);
+    levelEl.textContent = state.level;
+    const xpPct = Math.max(0, Math.min(1, state.xp / state.xpToNext)) * 100;
+    xpFill.style.width = xpPct + "%";
+}
+
+function renderSpecBar() {
+    specBar.innerHTML = "";
+    STAT_KEYS.forEach(key => {
+        const def = STATS[key];
+        const lvl = state.statLevels[key];
+        if (lvl === 0) return;
+        const spec = statSpec(key);
+        const block = document.createElement("div");
+        block.className = "spec-block";
+        block.style.borderColor = def.color;
+        block.style.color = def.color;
+        const pipsHtml = [0, 1, 2].map(i => `<div class="spec-pip ${i < spec ? 'on' : ''}" style="${i < spec ? 'background:' + def.color : ''}"></div>`).join("");
+        block.innerHTML = `
+            <div class="spec-icon">${def.icon}</div>
+            <div class="spec-meta">
+                <div class="spec-name">${def.name}</div>
+                <div class="spec-row"><span class="spec-lvl">LV ${lvl}</span><span class="spec-pips">${pipsHtml}</span></div>
+            </div>
+        `;
+        specBar.appendChild(block);
+    });
 }
 
 function showBanner(text, cls, dur) {
@@ -1148,14 +1451,4 @@ function mixColor(a, b, t) {
         Math.round(a[1] + (b[1] - a[1]) * t),
         Math.round(a[2] + (b[2] - a[2]) * t),
     ];
-}
-function weightedPick(items, weights) {
-    let total = 0;
-    for (let i = 0; i < weights.length; i++) total += weights[i];
-    let r = Math.random() * total;
-    for (let i = 0; i < items.length; i++) {
-        r -= weights[i];
-        if (r <= 0) return items[i];
-    }
-    return items[items.length - 1];
 }

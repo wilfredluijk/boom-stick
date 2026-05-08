@@ -433,30 +433,40 @@ html, body {
     border-bottom: 8px solid #777;
 }
 
-/* ===== Power-ups ===== */
-.powerup {
+/* ===== XP orbs ===== */
+.xp-orb {
     position: absolute;
     left: 0; top: 0;
-    width: 36px; height: 36px;
-    border-radius: 8px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
     z-index: 6;
     pointer-events: none;
-    will-change: transform;
-    box-shadow: 0 0 16px currentColor;
-    border: 2px solid rgba(255,255,255,0.6);
+    will-change: transform, opacity;
+    background: radial-gradient(circle at 35% 30%, #ecffec 0%, #6dff8a 45%, #1f9c2e 100%);
+    box-shadow: 0 0 14px rgba(80, 255, 130, 0.85), 0 0 28px rgba(50, 220, 100, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    font-weight: bold;
-    font-size: 18px;
-    text-shadow: 0 0 6px #000;
+    color: #022a0a;
+    font-weight: 900;
+    font-size: 11px;
+    text-shadow: 0 0 4px rgba(255,255,255,0.7);
 }
-.powerup.rapid    { background: linear-gradient(135deg, #ffd23f, #ff9b1a); color: #ffd23f; }
-.powerup.multi    { background: linear-gradient(135deg, #41e0a4, #1aa56c); color: #41e0a4; }
-.powerup.shield   { background: linear-gradient(135deg, #50b8ff, #2a78d8); color: #50b8ff; }
-.powerup.nuke     { background: linear-gradient(135deg, #ff5c8a, #c4204e); color: #ff5c8a; }
-.powerup.heal     { background: linear-gradient(135deg, #b9ff5c, #6cc41a); color: #b9ff5c; }
+.xp-orb.md {
+    width: 36px; height: 36px;
+    background: radial-gradient(circle at 35% 30%, #fff5b8 0%, #ffd23f 45%, #c47a00 100%);
+    box-shadow: 0 0 16px rgba(255, 210, 60, 0.9), 0 0 30px rgba(255, 170, 40, 0.55);
+    color: #2a1a00;
+    font-size: 12px;
+}
+.xp-orb.lg {
+    width: 46px; height: 46px;
+    background: radial-gradient(circle at 35% 30%, #ffe6f9 0%, #ff5c8a 50%, #82143a 100%);
+    box-shadow: 0 0 22px rgba(255, 100, 160, 0.95), 0 0 42px rgba(220, 60, 130, 0.65);
+    color: #2a0010;
+    font-size: 14px;
+}
 
 /* ===== Damage numbers / messages ===== */
 .dmg-num {
@@ -566,36 +576,172 @@ html, body {
     to   { box-shadow: 0 0 18px rgba(255, 30, 30, 0.9); }
 }
 
-#powerup-bar {
+/* ===== XP bar in HUD ===== */
+#xp-bar {
+    width: 160px;
+    height: 14px;
+    border: 1px solid rgba(180,255,180,0.35);
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(0,20,0,0.5);
+}
+#xp-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #2bff7a 0%, #b9ff5c 70%, #ffd23f 100%);
+    box-shadow: 0 0 10px rgba(120, 255, 130, 0.6) inset;
+    transition: width 0.18s ease-out;
+}
+.hud-level .hud-value { color: #b9ff5c; text-shadow: 0 0 8px rgba(140,255,120,0.7); }
+
+/* ===== Specialization bar (bottom-center) — passive build display ===== */
+#spec-bar {
     position: absolute;
-    bottom: 90px;
+    bottom: 16px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    gap: 10px;
+    gap: 8px;
     z-index: 55;
     pointer-events: none;
 }
-.powerup-icon {
-    width: 50px; height: 50px;
+.spec-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 8px;
+    background: rgba(8, 18, 30, 0.78);
+    border: 1px solid;
     border-radius: 6px;
-    background: rgba(8, 18, 30, 0.85);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: #fff;
-    font-weight: bold;
-    font-size: 11px;
+    box-shadow: 0 0 10px currentColor;
+    min-width: 96px;
+}
+.spec-block .spec-icon { font-size: 18px; line-height: 1; }
+.spec-block .spec-meta { display: flex; flex-direction: column; gap: 2px; }
+.spec-block .spec-name { font-size: 10px; letter-spacing: 1px; font-weight: 700; }
+.spec-block .spec-row { display: flex; align-items: center; gap: 6px; }
+.spec-block .spec-lvl { font-size: 10px; color: #d8ecff; opacity: 0.85; }
+.spec-block .spec-pips { display: flex; gap: 3px; }
+.spec-pip {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.45);
+    background: rgba(255,255,255,0.05);
+}
+.spec-pip.on  { box-shadow: 0 0 6px currentColor; }
+
+/* ===== Level-up overlay & cards ===== */
+.levelup-inner {
+    max-width: 1280px;
+    padding: 30px 40px;
+}
+.levelup-inner .title-glow {
+    font-size: 64px;
+    color: #b9ff5c;
+    text-shadow: 0 0 12px #b9ff5c, 0 0 28px rgba(120, 255, 80, 0.7), 0 0 50px rgba(80, 200, 60, 0.5);
+    margin-bottom: 6px;
+}
+.levelup-inner .title-glow span { color: #ffd23f; text-shadow: 0 0 12px #ffd23f, 0 0 28px #ff9b1a; }
+.levelup-inner .tagline { margin-bottom: 22px; }
+
+#upgrade-cards {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-top: 8px;
+}
+.upgrade-card {
+    position: relative;
+    background: linear-gradient(180deg, rgba(8, 18, 30, 0.95) 0%, rgba(2, 8, 16, 0.95) 100%);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    color: #e8f4ff;
+    padding: 18px 12px 14px;
+    text-align: center;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+    min-height: 270px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 12px currentColor;
-    animation: powerup-icon-pulse 1s ease-in-out infinite alternate;
+    gap: 6px;
 }
-.powerup-icon .pu-name { font-size: 9px; letter-spacing: 1px; opacity: 0.85; }
-.powerup-icon .pu-time { font-size: 16px; }
-@keyframes powerup-icon-pulse {
-    from { transform: scale(1); }
-    to   { transform: scale(1.05); }
+.upgrade-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    filter: brightness(1.15);
+}
+.upgrade-card .card-key {
+    position: absolute;
+    top: 6px; left: 8px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+.upgrade-card .card-icon {
+    font-size: 38px;
+    margin: 4px 0 2px;
+    text-shadow: 0 0 14px currentColor;
+}
+.upgrade-card .card-name {
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    text-shadow: 0 0 8px currentColor;
+}
+.upgrade-card .card-level {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #b0d0e8;
+    opacity: 0.85;
+}
+.upgrade-card .card-desc {
+    font-size: 12px;
+    color: #d8ecff;
+    line-height: 1.3;
+    margin: 4px 4px 0;
+}
+.upgrade-card .card-pips {
+    display: flex;
+    gap: 5px;
+    margin: 8px 0 4px;
+}
+.upgrade-card .card-pips .spec-pip {
+    width: 10px; height: 10px;
+}
+.upgrade-card .card-pips .spec-pip.new {
+    animation: pip-new 0.9s ease-in-out infinite alternate;
+}
+@keyframes pip-new {
+    from { transform: scale(1); filter: brightness(1); }
+    to   { transform: scale(1.4); filter: brightness(1.6); }
+}
+.upgrade-card .card-unlock {
+    margin-top: auto;
+    border-top: 1px dashed rgba(255,255,255,0.18);
+    padding-top: 8px;
+    width: 100%;
+}
+.upgrade-card .card-unlock.muted { opacity: 0.45; }
+.upgrade-card .unlock-tag {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #6db8d8;
+}
+.upgrade-card .unlock-name {
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    margin: 2px 0;
+    text-shadow: 0 0 6px currentColor;
+}
+.upgrade-card .unlock-desc {
+    font-size: 11px;
+    color: #c8e0f4;
+    line-height: 1.25;
+    padding: 0 2px;
 }
 
 /* ===== Buttons / overlays ===== */
