@@ -17,11 +17,11 @@ const TARGET_DT = 1000 / 60;        // physics base step
 const STORAGE_KEY = "boomstick.best.v1";
 
 const ENEMY_TYPES = {
-    scout:  { hp: 40,  width: 160, height: 80,  baseSpeed: 2.4, score: 100, xp: 10,  bombChance: 0,    altitudeRange: [120, 320] },
-    heli:   { hp: 100, width: 220, height: 110, baseSpeed: 1.6, score: 250, xp: 25,  bombChance: 0.004,altitudeRange: [180, 360] },
-    heavy:  { hp: 260, width: 280, height: 140, baseSpeed: 1.0, score: 500, xp: 60,  bombChance: 0.012,altitudeRange: [140, 300] },
-    jet:    { hp: 60,  width: 90,  height: 36,  baseSpeed: 7.5, score: 350, xp: 20,  bombChance: 0,    altitudeRange: [80,  260] },
-    boss:   { hp: 2200,width: 420, height: 210, baseSpeed: 0.6, score: 5000,xp: 300, bombChance: 0.020,altitudeRange: [120, 240] },
+    scout:  { hp: 40,  width: 160, height: 80,  baseSpeed: 2.4, score: 100, xp: 10,  bombChance: 0,    escapeDmg: 5,  altitudeRange: [120, 320] },
+    heli:   { hp: 100, width: 220, height: 110, baseSpeed: 1.6, score: 250, xp: 25,  bombChance: 0.004,escapeDmg: 10, altitudeRange: [180, 360] },
+    heavy:  { hp: 260, width: 280, height: 140, baseSpeed: 1.0, score: 500, xp: 60,  bombChance: 0.012,escapeDmg: 20, altitudeRange: [140, 300] },
+    jet:    { hp: 60,  width: 90,  height: 36,  baseSpeed: 7.5, score: 350, xp: 20,  bombChance: 0,    escapeDmg: 8,  altitudeRange: [80,  260] },
+    boss:   { hp: 2200,width: 420, height: 210, baseSpeed: 0.6, score: 5000,xp: 300, bombChance: 0.020,escapeDmg: 40, altitudeRange: [120, 240] },
 };
 
 /* ====================================================================
@@ -452,6 +452,7 @@ function spawnEnemy(type) {
         score: def.score,
         xp: def.xp,
         bombChance: def.bombChance,
+        escapeDmg: def.escapeDmg,
         crashing: false,
         crashRot: 0,
         crashSpin: (Math.random() - 0.5) * 0.04,
@@ -829,10 +830,18 @@ function updateEnemies(dt, dtMs) {
             spawnBomb(e.x + e.w / 2, e.y + e.h);
         }
 
-        /* off-screen wraparound -> just despawn */
-        if ((e.vx < 0 && e.x < -e.w - 20) || (e.vx > 0 && e.x > W + 20)) {
-            /* enemy escaped — small player penalty: lose combo */
+        /* off-screen handling: only left-exits past the cannon hurt the player */
+        if (e.vx < 0 && e.x < -e.w - 20) {
             state.combo = 0;
+            damagePlayer(e.escapeDmg || 8);
+            shake(e.type === "boss" ? 3 : e.type === "heavy" ? 2 : 1);
+            showBanner("BREACH", "warn", 800);
+            e.el.remove();
+            enemies.splice(i, 1);
+            continue;
+        }
+        if (e.vx > 0 && e.x > W + 20) {
+            /* harmless right-side flyby (jets that came from the left) */
             e.el.remove();
             enemies.splice(i, 1);
             continue;
@@ -930,10 +939,20 @@ function updateBombs(dt, dtMs) {
         const hitCannon = b.x >= cannonRect.x && b.x <= cannonRect.x + cannonRect.w &&
                           b.y >= cannonRect.y && b.y <= cannonRect.y + cannonRect.h;
         if (b.y >= GROUND_Y || hitCannon) {
+            const cannonCenterX = cannonRect.x + cannonRect.w / 2;
+            const distFromCannon = Math.abs(b.x - cannonCenterX);
             spawnExplosion(b.x, Math.min(b.y, GROUND_Y - 8), 1.0);
-            shake(2);
-            if (hitCannon) damagePlayer(20);
-            else damagePlayer(8);
+            if (hitCannon) {
+                damagePlayer(20);
+                shake(2);
+            } else if (distFromCannon < 160) {
+                /* near miss — splash damages cannon */
+                damagePlayer(8);
+                shake(2);
+            } else {
+                /* harmless ground impact away from the cannon */
+                shake(1);
+            }
             b.el.remove();
             bombs.splice(i, 1);
         }
